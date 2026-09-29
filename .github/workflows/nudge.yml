@@ -1,0 +1,31 @@
+name: nudge
+# Calls Stack's nudge endpoint every 15 minutes. The endpoint decides what (if anything) to send;
+# quiet hours, dedupe and the daily cap live server-side. Logs print only the HTTP status.
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+    - cron: "3 12 * * *"
+  workflow_dispatch:
+permissions:
+  actions: write
+concurrency:
+  group: nudge
+  cancel-in-progress: false
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Tick
+        env:
+          NUDGE_SECRET: ${{ secrets.NUDGE_SECRET }}
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 -X POST https://stack-log-gold.vercel.app/api/data \
+            -H "Authorization: Bearer $NUDGE_SECRET" -H 'Content-Type: application/json' -d '{"op":"nudge","mode":"run"}')
+          echo "HTTP $code"
+          test "$code" = "200"
+      - name: Keep the schedule alive
+        if: github.event.schedule == '3 12 * * *'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/nudge.yml/enable"
